@@ -3,6 +3,7 @@ import pandas as pd
 import nibabel as nib
 import pyvista as pv
 import matplotlib.pyplot as plt
+import os
 
 def load_gii(gii_path):
     """Load GIfTI geometry (vertices, faces)."""
@@ -55,11 +56,9 @@ def prep_data(data, regions, atlas, category):
     """Standardize input data to dictionary."""
     if isinstance(data, pd.DataFrame):
         if data.shape[1] >= 2:
-            return dict(zip(data.iloc[:, 0], data.iloc[:, 1]))
+            data = dict(zip(data.iloc[:, 0], data.iloc[:, 1]))
     elif isinstance(data, pd.Series):
-        return data.to_dict()
-    elif isinstance(data, dict):
-        return data
+        data = data.to_dict()
     elif isinstance(data, (list, np.ndarray, tuple)):
         if len(data) != len(regions):
             raise ValueError(
@@ -69,7 +68,13 @@ def prep_data(data, regions, atlas, category):
                 f"Use `yabplot.get_atlas_regions('{atlas}', '{category}')` to see expected order."
             )
         # map strictly by order
-        return dict(zip(regions, data))
+        data = dict(zip(regions, data))
+
+    #resolve any present tsf paths:
+    if isinstance(data, dict):
+        for key, value in data.items():
+            if isinstance(value, str):
+                data[key] = read_tsf(value)
 
     return data
 
@@ -105,3 +110,90 @@ def parse_lut(lut_path):
         
     return ids, lut_colors, lut_names_list, max_id
 
+
+def read_tsf(tsf_path: str) -> list[int | float]:
+    """read an MRtrix3 .tsf (track scalar file)."""
+    if not os.path.isfile(tsf_path):
+        raise FileNotFoundError(f"File not found: {tsf_path}")
+    header: dict[str, str] = {}
+    data_offset: int | None = None
+    with open(tsf_path, "rb") as fh:
+        # first line must be the magic string
+        magic_line = fh.readline().decode("ascii", errors="replace").strip()
+        if not magic_line.lower().startswith("mrtrix track scalars"):
+            raise ValueError(
+                "Not a valid MRtrix TSF file "
+                "(missing 'mrtrix track scalars' magic)."
+            )
+        header["magic"] = magic_line
+
+        while True:
+            line = fh.readline()
+            if not line:
+                raise ValueError(
+                    "Unexpected end of file while reading header."
+                )
+            line = line.decode("ascii", errors="replace").strip()
+            if line == "END":
+                break
+
+            # parse "key: value" pairs
+            colon_pos = line.find(":")
+            if colon_pos > 0:
+                key = line[:colon_pos].strip()
+                value = line[colon_pos + 1 :].strip()
+                header[key] = value
+
+                # capture the data offset
+                if key.lower() == "file":
+                    # Value is typically ". <offset>"
+                    parts = value.split()
+                    data_offset = int(parts[-1])
+
+        if data_offset is None:
+            raise ValueError(
+                "Could not determine data offset from header "
+                "('file' key missing)."
+            )
+
+        # 2. read the binary data -------------------------------------
+        fh.seek(data_offset)
+        raw_bytes = fh.read()
+
+    # determine byte order from header (default: Float32LE)
+    datatype = header.get("datatype", "Float32LE").lower()
+    byte_order = ">" if datatype.endswith("be") else "<"
+
+    if "64" in datatype:
+        dtype = np.dtype(f"{byte_order}f8")
+    else:
+        dtype = np.dtype(f"{byte_order}f4")
+
+    # trim any trailing bytes that don't fill a complete element
+    element_size = dtype.itemsize
+    usable = len(raw_bytes) - (len(raw_bytes) % element_size)
+    raw_data = np.frombuffer(raw_bytes[:usable], dtype=dtype)
+
+    # --- 3. split into per-streamline vectors ----------------------------
+    #   NaN  → streamline separator
+    #   Inf  → end-of-file marker
+    inf_mask = np.isinf(raw_data)
+    inf_indices = np.where(inf_mask)[0]
+    if inf_indices.size > 0:
+        raw_data = raw_data[: inf_indices[0]]
+
+    nan_mask = np.isnan(raw_data)
+    # indices where NaN occurs mark the *end* of each streamline
+    split_indices = np.where(nan_mask)[0]
+    # however we need a flat list anyways for plotting: remove NaNs
+    data = raw_data[~nan_mask].tolist()
+    return data
+
+def flatten(lst):
+    result = []
+    for i in lst:
+        if isinstance(i, list):
+            result.extend(flatten(i))
+        else:
+            result.append(i)
+    return result
