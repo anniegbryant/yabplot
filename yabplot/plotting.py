@@ -12,7 +12,7 @@ from .data import (
 )
 
 from .utils import (
-    load_gii2pv, prep_data, 
+    load_gii, load_gii2pv, prep_data, 
     generate_distinct_colors, parse_lut
 )
 
