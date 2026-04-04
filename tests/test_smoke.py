@@ -3,9 +3,6 @@ import numpy as np
 import yabplot as yab
 import pyvista as pv
 
-from yabplot.plotting import _load_bmesh
-
-
 # tell PyVista to run in "off-screen" mode so it doesn't try to open a real window
 pv.OFF_SCREEN = True
 
@@ -14,17 +11,17 @@ def test_version():
     assert yab.__version__ is not None
 
 def test_none_returns_empty_dict():
-    result = _load_bmesh(None)
+    result = yab.plotting._load_bmesh(None)
     assert result == {}
 
 def test_dict_passthrough():
     d = {'L': 'something', 'R': 'something_else'}
-    result = _load_bmesh(d)
+    result = yab.plotting._load_bmesh(d)
     assert result is d 
 
 def test_polydata_wrapped_in_both():
     mesh = pv.Sphere()
-    result = _load_bmesh(mesh)
+    result = yab.plotting._load_bmesh(mesh)
     assert 'both' in result
     assert result['both'] is mesh
 
