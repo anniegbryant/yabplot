@@ -10,6 +10,34 @@ def test_version():
     """Check that the package has a version string."""
     assert yab.__version__ is not None
 
+def test_none_returns_empty_dict():
+    """
+    Unit test: Verify that passing None disables the background mesh 
+    by correctly returning an empty dictionary.
+    """
+    result = yab.plotting._load_bmesh(None)
+    assert result == {}
+
+def test_dict_passthrough():
+    """
+    Unit test: Verify that custom dictionary keys for hemispheres 
+    are properly sanitized to strict 'L' and 'R' keys.
+    """
+    d = {'left': 'something', 'RIGHT': 'something_else', 'other': 'keep_me'}
+    result = yab.plotting._load_bmesh(d)
+    expected = {'L': 'something', 'R': 'something_else', 'other': 'keep_me'}
+    assert result == expected
+
+def test_polydata_wrapped_in_both():
+    """
+    Unit test: Verify that passing a single PyVista mesh (whole brain) 
+    safely wraps it in a dictionary with the 'both' key.
+    """
+    mesh = pv.Sphere()
+    result = yab.plotting._load_bmesh(mesh)
+    assert 'both' in result
+    assert result['both'] is mesh
+
 def test_plotter_instantiation():
     """
     Smoke test: Can we create a Plotter without crashing?
