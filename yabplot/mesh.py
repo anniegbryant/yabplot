@@ -1,6 +1,53 @@
 import numpy as np
 import pyvista as pv
 import scipy.sparse as sp
+
+def load_bmesh(bmesh):
+    """
+    Transforms the `bmesh` parameter into a standardized dictionary of PyVista PolyData meshes.
+
+    Parameters
+    ----------
+    bmesh : None, str, dict, or pyvista.PolyData
+        - None: Returns an empty dictionary (disables background mesh).
+        - str: Fetches standard meshes from the registry (e.g., 'midthickness').
+        - dict: Maps custom meshes to 'L' and 'R' keys. Values can be pre-loaded 
+          PyVista PolyData objects or string file paths (which are auto-loaded).
+        - pyvista.PolyData: A single unified mesh, mapped to the 'both' key.
+
+    Returns
+    -------
+    dict
+        Standardized dictionary containing the loaded PyVista meshes.
+    """
+    from .data import get_surface_paths
+    from .utils import load_gii2pv
+
+    if bmesh is None:
+        return {}
+    if isinstance(bmesh, str):
+        lh_path, rh_path = get_surface_paths(bmesh, 'bmesh')
+        return {'L': load_gii2pv(lh_path), 'R': load_gii2pv(rh_path)}
+    if isinstance(bmesh, dict):
+        clean_dict = {}
+        for k, v in bmesh.items():
+            if isinstance(v, str):
+                if v.endswith('.gii') or v.endswith('.gii.gz'):
+                    v = load_gii2pv(v)
+                else:
+                    v = pv.read(v)
+            if k.upper() in ['L', 'LEFT']: clean_dict['L'] = v
+            elif k.upper() in ['R', 'RIGHT']: clean_dict['R'] = v
+            else: clean_dict[k] = v
+        return clean_dict
+    
+    return {'both': bmesh}
+
+def extract_polydata(mesh_hemi: pv.PolyData):
+    """Return vertices and rotated faces for plotting."""
+    v = mesh_hemi.points
+    f = mesh_hemi.faces.reshape(-1, 4)[:, 1:]
+    return v, f
     
 def make_cortical_mesh(verts, faces, scalars, scalar_name='Data'):
     """

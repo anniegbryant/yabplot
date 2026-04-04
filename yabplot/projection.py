@@ -3,8 +3,7 @@ import numpy as np
 import nibabel as nib
 from scipy.ndimage import map_coordinates
 
-def project_vol2surf(nii_path, bmesh_type='midthickness', custom_bmesh_paths=None, 
-                     mask_medial_wall=True, interpolation='linear'):
+def project_vol2surf(nii_path, bmesh='midthickness', mask_medial_wall=True, interpolation='linear'):
     """
     Projects a 3D NIfTI volume onto 2D cortical surface vertices.
 
@@ -16,16 +15,14 @@ def project_vol2surf(nii_path, bmesh_type='midthickness', custom_bmesh_paths=Non
     nii_path : str
         absolute path to the 3D or 4D NIfTI volume. 
         if 4D, only the first volume/timepoint is used.
-    bmesh_type : str, optional
-        name of the standard background mesh to use for projection coordinates. 
-        default is 'midthickness'.
-    custom_bmesh_paths : tuple of str, optional
-        custom paths for (lh_mesh, rh_mesh) if not using standard yabplot meshes.
-        default is None.
+    bmesh : str, dict, or pyvista.PolyData, optional
+        background mesh to use for projection coordinates. accepts a standard 
+        string (e.g., 'midthickness') or a dictionary of custom pyvista meshes 
+        {'L': mesh, 'R': mesh}. default is 'midthickness'.
     mask_medial_wall : bool, optional
         whether to automatically set the medial wall vertices to NaN to prevent 
         subcortical signal from bleeding onto the cortical surface. 
-        default is True.
+        Note: only supported if `bmesh` is a standard string. default is True.
     interpolation : {'linear', 'nearest'}, optional
         interpolation method for sampling the volume. 'linear' performs trilinear 
         interpolation (smoother, good for continuous t-stats), while 'nearest' 
@@ -40,52 +37,51 @@ def project_vol2surf(nii_path, bmesh_type='midthickness', custom_bmesh_paths=Non
         1D array of projected values for the right hemisphere vertices.
     """
     from .data import get_surface_paths
-    from .utils import load_gii
+    from .mesh import load_bmesh, extract_polydata
 
     # load volume
     img = nib.load(nii_path)
     vol_data = img.get_fdata()
     
-    # check for 4d data (e.g. raw fmri timeseries)
     if vol_data.ndim > 3:
         warnings.warn(f"[WARNING] detected {vol_data.ndim}d nifti volume. using the first volume (index 0).")
         vol_data = vol_data[..., 0] 
         
-    # invert affine to go from real-world mm space back to voxel indices
     inv_affine = np.linalg.inv(img.affine)
 
-    # resolve surfaces
-    if custom_bmesh_paths:
-        lh_path, rh_path = custom_bmesh_paths
-    else:
-        lh_path, rh_path = get_surface_paths(bmesh_type, 'bmesh')
+    # load brain mesh
+    loaded_meshes = load_bmesh(bmesh)
+    
+    if 'L' not in loaded_meshes or 'R' not in loaded_meshes:
+        raise ValueError("project_vol2surf requires both 'L' and 'R' hemispheres in the bmesh dictionary.")
         
-    lh_v, _ = load_gii(lh_path)
-    rh_v, _ = load_gii(rh_path)
+    # extract raw coordinates for math
+    lh_v, _ = extract_polydata(loaded_meshes['L'])
+    rh_v, _ = extract_polydata(loaded_meshes['R'])
 
     def sample_surface(vertices, volume, inv_aff, interp):
         # convert [x, y, z] to [x, y, z, 1] to allow 4x4 affine matrix multiplication
         coords_homo = np.hstack((vertices, np.ones((vertices.shape[0], 1))))
-        
         # multiply by inverse affine to get exact decimal voxel coordinates
         vox_coords = inv_aff.dot(coords_homo.T)[:3, :]
-        
         # set scipy interpolation order (1 = trilinear, 0 = nearest neighbor)
         order = 1 if interp == 'linear' else 0
-        
         # sample the 3d volume at the calculated decimal coordinates
-        sampled_data = map_coordinates(volume, vox_coords, order=order, mode='nearest')
-        return sampled_data
+        return map_coordinates(volume, vox_coords, order=order, mode='nearest')
 
     # projection
     lh_data = sample_surface(lh_v, vol_data, inv_affine, interpolation)
     rh_data = sample_surface(rh_v, vol_data, inv_affine, interpolation)
 
-    # mask out the medial wall (optional but default true)
+    # handle the medial wall
     if mask_medial_wall:
-        lh_mask_path, rh_mask_path = get_surface_paths('nomedialwall', 'label')
-        lh_data[nib.load(lh_mask_path).darrays[0].data == 0] = np.nan
-        rh_data[nib.load(rh_mask_path).darrays[0].data == 0] = np.nan
+        if isinstance(bmesh, str):
+            # only if standard fs_LR 32k mesh
+            lh_mask_path, rh_mask_path = get_surface_paths('nomedialwall', 'label')
+            lh_data[nib.load(lh_mask_path).darrays[0].data == 0] = np.nan
+            rh_data[nib.load(rh_mask_path).darrays[0].data == 0] = np.nan
+        else:
+            warnings.warn("[WARNING] medial wall masking is only automatically supported for standard yabplot string meshes. skipping mask.")
 
     return lh_data, rh_data
 

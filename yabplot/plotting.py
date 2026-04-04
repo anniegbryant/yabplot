@@ -19,7 +19,7 @@ from .utils import (
 from .mesh import (
     map_values_to_surface, get_puzzle_pieces, apply_internal_blur, 
     apply_dilation, get_smooth_mask, lines_from_streamlines, 
-    make_cortical_mesh
+    make_cortical_mesh, load_bmesh, extract_polydata
 )
 
 from .scene import (
@@ -27,31 +27,6 @@ from .scene import (
     set_camera, finalize_plot, get_shading_preset, add_colorbars
 )
 
-def _load_bmesh(bmesh):
-    """
-    Transform bmesh into {'L': PolyData, 'R': PolyData}, {'both': bmesh} single
-    PolyData passthrough, or {} if None.
-    """
-    if bmesh is None:
-        return {}
-    if isinstance(bmesh, str):
-        lh_path, rh_path = get_surface_paths(bmesh, 'bmesh')
-        return {'L': load_gii2pv(lh_path), 'R': load_gii2pv(rh_path)}
-    if isinstance(bmesh, dict):
-        clean_dict = {}
-        for k, v in bmesh.items():
-            if k.upper() in ['L', 'LEFT']: clean_dict['L'] = v
-            elif k.upper() in ['R', 'RIGHT']: clean_dict['R'] = v
-            else: clean_dict[k] = v
-        return clean_dict
-    
-    return {'both': bmesh}
-
-def _extract_polydata(mesh_hemi: pv.PolyData):
-    """Return vertices and rotated faces for plotting."""
-    v = mesh_hemi.points
-    f = mesh_hemi.faces.reshape(-1, 4)[:, 1:]
-    return v, f
 
 def _render_cortical_views(lh_v, lh_f, lh_vals, rh_v, rh_f, rh_vals, is_cat,
                            views, layout, figsize, cmap, vminmax, nan_color, 
@@ -305,9 +280,9 @@ def plot_vertexwise(lh, rh, scalars='Data', views=None, layout=None, figsize=(10
     """
 
     # extract v, f, raw from PyVista meshes
-    lh_v, lh_f = _extract_polydata(lh)
+    lh_v, lh_f = extract_polydata(lh)
     lh_vals_raw = lh[scalars]
-    rh_v, rh_f = _extract_polydata(rh)
+    rh_v, rh_f = extract_polydata(rh)
     rh_vals_raw = rh[scalars]
 
     # render
@@ -394,7 +369,7 @@ def plot_subcortical(data=None, atlas=None, custom_atlas_path=None, views=None, 
         atlas = 'aseg'
 
     # load context brain mesh (if requested) or accept mesh directly
-    ctx_meshes = _load_bmesh(bmesh)
+    ctx_meshes = load_bmesh(bmesh)
     
     # load regional atlas meshes
     # resolve atlas path (either download or custom directory)
@@ -606,7 +581,7 @@ def plot_tracts(data=None, atlas=None, custom_atlas_path=None, views=None, layou
         c_vlim = [0, 1]
 
     # load context brain mesh (if requested)
-    ctx_meshes = _load_bmesh(bmesh)
+    ctx_meshes = load_bmesh(bmesh)
 
     # setup plotter
     sel_views = get_view_configs(views)

@@ -102,7 +102,7 @@ def add_context_to_view(plotter, bmesh, view_side, alpha, color, **kwargs):
     """
     if not bmesh: return
     for h, mesh in bmesh.items():
-        if (view_side == 'L' and h == 'L') or (view_side == 'R' and h == 'R'): continue
+        if (view_side == 'L' and h == 'R') or (view_side == 'R' and h == 'L'): continue
         plotter.add_mesh(mesh, color=color, opacity=alpha, 
                          smooth_shading=True, show_edges=False, 
                          **kwargs)
