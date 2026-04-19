@@ -1,6 +1,11 @@
+import warnings
+
+import nibabel as nib
 import numpy as np
 import pyvista as pv
 import scipy.sparse as sp
+from scipy.ndimage import gaussian_filter
+from skimage import measure
 
 def load_bmesh(bmesh):
     """
@@ -104,6 +109,76 @@ def load_vertexwise_mesh(lh_mesh_path, rh_mesh_path, lh_data, rh_data, scalar_na
     rh = make_cortical_mesh(*load_gii(rh_mesh_path), rh_data, scalar_name)
     return lh, rh
 
+def load_nii_as_mesh(
+    nii_path,
+    threshold=0.5,
+    blur_sigma=1.5,
+    smooth_i=10,
+    smooth_f=0.1
+):
+    """
+    Build a surface mesh from a 3D NIfTI volume using marching cubes, with optional Gaussian blurring and mesh smoothing.
+
+    Parameters
+    ----------
+    nii_path : str
+        Absolute path to a NIfTI file representing a 3D volume. If 4D, only the first volume will be used.
+    threshold : float, optional
+        Threshold applied after optional blur. Voxels ``> threshold`` are kept.
+    blur_sigma : float, optional
+        Gaussian blur (voxel units) before thresholding.
+    smooth_i : int, optional
+        Number of PyVista smoothing iterations after surface extraction.
+    smooth_f : float, optional
+        Relaxation factor for mesh smoothing.
+
+    Returns
+    -------
+    mesh : pyvista.PolyData
+        The extracted and smoothed surface mesh ready for plotting.
+    """
+
+    img = nib.load(nii_path)
+    vol = img.get_fdata()
+
+    if vol.ndim > 3:
+        warnings.warn(
+            f"[WARNING] detected {vol.ndim}d nifti volume. using the first volume (index 0)."
+        )
+        vol = vol[..., 0]
+
+    vol = np.nan_to_num(vol, nan=0.0)
+
+    if blur_sigma and blur_sigma > 0:
+        vol = gaussian_filter(vol, sigma=float(blur_sigma))
+
+    mask = vol > float(threshold)
+
+    if not np.any(mask):
+        raise ValueError("Mask is empty after thresholding. Adjust threshold/blur_sigma.")
+
+    verts_vox, faces, _, _ = measure.marching_cubes(mask.astype(np.float32), level=0.5)
+    verts_world = nib.affines.apply_affine(img.affine, verts_vox)
+
+    faces_pv = np.hstack([
+        np.full((faces.shape[0], 1), 3, dtype=np.int64),
+        faces.astype(np.int64)
+    ]).ravel()
+    mesh = pv.PolyData(verts_world.astype(np.float32), faces_pv)
+
+    if smooth_i and smooth_i > 0:
+        mesh = mesh.smooth(n_iter=int(smooth_i), relaxation_factor=float(smooth_f))
+
+    if mesh.n_points == 0:
+        raise ValueError("Extracted mesh has no vertices. Check input mask and parameters.")
+
+    # fill topological holes in the extracted meshes
+    try:
+        mesh = mesh.fill_holes(1000)
+    except Exception as e:
+        warnings.warn(f"Mesh hole filling failed: {e}. Continuing with unfilled meshes.")
+
+    return mesh
 
 def map_values_to_surface(data, target_labels, lut_ids, dense_lut_names):
     """maps data to vertices."""
