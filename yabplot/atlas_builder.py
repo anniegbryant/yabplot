@@ -224,10 +224,10 @@ def qc_custom_cortical_atlas(atlas_dir, atlasname='atlas'):
             plot_file = os.path.join(qc_dir, f"{rid:03d}_{name}.png")
             
             try:
-                plot_cortical(
+                ax = plot_cortical(
                     data={name: 1},
                     custom_atlas_path=atlas_dir,
-                    cmap='binary',vminmax=[0, 1],
+                    cmap='binary', vminmax=[0, 1],
                     export_path=plot_file
                 )
             except Exception as e:
@@ -397,7 +397,7 @@ def qc_custom_subcortical_atlas(atlas_dir):
             plot_file = os.path.join(qc_dir, f"{region_name}.png")
             
             try:
-                plot_subcortical(
+                ax = plot_subcortical(
                     data={region_name: 1},
                     custom_atlas_path=atlas_dir,
                     cmap='binary', vminmax=[0, 1],
