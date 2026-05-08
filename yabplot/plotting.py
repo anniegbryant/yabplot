@@ -123,7 +123,7 @@ def _render_cortical_views(lh_v, lh_f, lh_vals, rh_v, rh_f, rh_vals, is_cat,
 
 def plot_cortical(data=None, atlas=None, custom_atlas_path=None, ax=None, cbar_kwargs=None, views=None, layout=None,
                   bmesh='midthickness', figsize=None, cmap='coolwarm', vminmax=[None, None],
-                  nan_color=(1.0, 1.0, 1.0), style='default', zoom=1.2, proc_vertices=None,
+                  nan_color=(1.0, 1.0, 1.0), style='default', zoom=1.2, proc_vertices='sharp',
                   display_type='matplotlib', export_path=None):
     """
     Visualize data on the cortical surface using a specified atlas.
@@ -168,9 +168,9 @@ def plot_cortical(data=None, atlas=None, custom_atlas_path=None, ax=None, cbar_k
         Camera zoom level. >1.0 zooms in, <1.0 zooms out. Default is 1.2.
     proc_vertices : str or None, optional
         Whether to process the vertices edges according to geometry of bmesh.
-        Set to None to not perform (default).
-        'blur': Applies simple blurring between different color vertices (low performance impact).
-        'sharp': Applies sharpening of the resolution of different color vertices (high performance impact).
+        Set to None to not perform.
+        'blur': Applies simple blurring between different color vertices.
+        'sharp': Applies sharpening of the resolution of different color vertices (default).
     display_type : {'matplotlib', 'interactive', 'pyvista', 'object'}, optional
         'matplotlib': returns a matplotlib figure and axis (default).
         'interactive': opens an interactive trame viewer in the browser.
@@ -225,9 +225,8 @@ def plot_cortical(data=None, atlas=None, custom_atlas_path=None, ax=None, cbar_k
 ### PLOT FOR VERTEX-WISE CORTICAL DATA ###
 
 def plot_vertexwise(lh, rh, scalars='Data', ax=None, cbar_kwargs=None, views=None, layout=None, figsize=None,
-                    cmap='coolwarm', vminmax=[None, None],
-                    nan_color=(1.0, 1.0, 1.0), style='default', zoom=1.2,
-                    proc_vertices=None, display_type='matplotlib', export_path=None):
+                    cmap='coolwarm', vminmax=[None, None], nan_color=(1.0, 1.0, 1.0), style='default', zoom=1.2,
+                    display_type='matplotlib', export_path=None):
     """
     Visualize arbitrary per-vertex scalar data on a user-supplied brain mesh.
 
@@ -261,8 +260,6 @@ def plot_vertexwise(lh, rh, scalars='Data', ax=None, cbar_kwargs=None, views=Non
         Lighting preset ('default', 'matte', 'glossy', 'sculpted', 'flat').
     zoom : float, optional
         Camera zoom level. Default is 1.2.
-    proc_vertices : str or None, optional
-        Vertex processing mode: None, 'blur', or 'sharp'.
     display_type : {'matplotlib', 'interactive', 'pyvista', 'object'}, optional
         'matplotlib': returns a matplotlib figure and axis (default).
         'interactive': opens an interactive trame viewer in the browser.
@@ -310,7 +307,7 @@ def plot_vertexwise(lh, rh, scalars='Data', ax=None, cbar_kwargs=None, views=Non
     return _render_cortical_views(
         lh_v, lh_f, lh_vals_raw, rh_v, rh_f, rh_vals_raw, False, ax, cbar_kwargs,
         views, layout, figsize, cmap, vminmax, nan_color, style,
-        zoom, proc_vertices, display_type, export_path
+        zoom, None, display_type, export_path
     )
 
 

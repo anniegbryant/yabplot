@@ -6,6 +6,7 @@ import pyvista as pv
 import scipy.sparse as sp
 from scipy.ndimage import gaussian_filter
 from skimage import measure
+from concurrent.futures import ThreadPoolExecutor
 
 def load_bmesh(bmesh):
     """
@@ -279,35 +280,60 @@ def apply_dilation(faces, data, iterations=4):
     return data_out
 
 
+def get_smooth_masks_vectorized(faces, n_v, r_masks, iterations=4):
+    adj = get_adj(faces, n_v)
+    deg = np.array(adj.sum(axis=1)).flatten()
+    deg[deg == 0] = 1.0
+    mask = r_masks.astype(np.float64)
+    for _ in range(iterations):
+        mask = (mask + (adj.dot(mask) / deg[:, None])) / 2.0
+    return mask
+
 def get_puzzle_pieces(v, f, raw_vals):
-    """carve out geometric pieces with slight overlap to prevent gaps."""
-    pieces = []
+    """
+    Creates sharp boundaries without gaps by calculating smooth probability fields
+    and interpolating them onto a highly subdivided continuous mesh.
+    """
     valid_mask = ~np.isnan(raw_vals) & (raw_vals != 0.0)
     u_vals = np.unique(raw_vals[valid_mask])
-    master = make_cortical_mesh(v, f, np.zeros_like(raw_vals))
-
-    for val in u_vals:
-        r_mask = np.where(raw_vals == val, 1.0, 0.0)
-        s_mask = get_smooth_mask(f, r_mask, iterations=4)
-        temp = master.copy()
-        temp['Slice_Mask'] = s_mask
-        # reduce search space
-        patch = temp.threshold(0.01, scalars='Slice_Mask')
-        if patch.n_points > 0:
-            # use 0.48 (slightly expanded) for pieces to seal cracks
-            piece = patch.clip_scalar(scalars='Slice_Mask', value=0.48, invert=False)
-            if piece.n_points > 0:
-                piece['Data'] = np.full(piece.n_points, val)
-                pieces.append(piece)
     
-    # slice base brain
-    all_mask = np.where(valid_mask, 1.0, 0.0)
-    s_all = get_smooth_mask(f, all_mask, iterations=4)
-    master['Slice_Mask'] = s_all
-    # use 0.52 (slightly contracted) for the hole to ensure colored pieces cover the edge
-    base_p = master.clip_scalar(scalars='Slice_Mask', value=0.52, invert=True)
-    if base_p.n_points > 0:
-        base_p['Data'] = np.full(base_p.n_points, np.nan)
+    # if no data, skip
+    if len(u_vals) == 0:
+        master = make_cortical_mesh(v, f, np.full(len(v), np.nan))
+        return pv.PolyData(), [master]
+    
+    n_v = len(v)
+    n_k = len(u_vals)
+    
+    # vectorized smoothing
+    r_masks = np.zeros((n_v, n_k + 1), dtype=np.float64)
+    r_masks[:, 0] = np.where(~valid_mask, 1.0, 0.0) # medial wall
+    for i, val in enumerate(u_vals):
+        r_masks[:, i+1] = np.where(raw_vals == val, 1.0, 0.0)
+    
+    s_masks = get_smooth_masks_vectorized(f, n_v, r_masks, iterations=4)
+    
+    master = make_cortical_mesh(v, f, np.zeros_like(raw_vals))
+    master['Masks'] = s_masks
+    
+    # subdivide to increase resolution (2 levels = 16x faces)
+    sub = master.subdivide(2, subfilter='linear')
+    
+    # assign labels to high-res vertices
+    interp_masks = sub['Masks']
+    best_class = np.argmax(interp_masks, axis=1)
+    new_data = np.full(sub.n_points, np.nan)
+    valid_idx = best_class > 0
+    
+    # map the argmax indices back to their original scalar values
+    new_data[valid_idx] = u_vals[best_class[valid_idx] - 1]
+    sub['Data'] = new_data
+    
+    # clean up multi-component array to save memory
+    del sub.point_data['Masks']
+    
+    base_p = pv.PolyData()
+    pieces = [sub]
     
     return base_p, pieces
 

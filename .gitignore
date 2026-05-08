@@ -6,11 +6,12 @@ docs/tutorials/tutorial_data/
 dev/
 site/
 paper/
+paperprep/
 tutorial_data/
 test.ipynb
 todo.md
 test_data/
-*.ipynb
+# *.ipynb
 test.py
 
 .DS_Store
