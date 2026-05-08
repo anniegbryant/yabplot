@@ -66,6 +66,7 @@ nav:
       - plotting connectome: tutorials/plotting_connectome.ipynb
       - (advanced) using custom subcortical atlas: tutorials/custom_subcortical_atlas.ipynb
       - (advanced) using custom cortical atlas: tutorials/custom_cortical_atlas.ipynb
+      - (advanced) using custom background mesh: tutorials/custom_background_mesh.ipynb
   - API reference:
       - plotting functions: reference/plotting.md
       - data functions: reference/data.md
