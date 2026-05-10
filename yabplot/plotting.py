@@ -319,7 +319,7 @@ def plot_vertexwise(lh, rh, scalars='Data', ax=None, cbar_kwargs=None, views=Non
 def plot_subcortical(data=None, atlas=None, custom_atlas_path=None, ax=None, cbar_kwargs=None, views=None, layout=None,
                      figsize=None, cmap='coolwarm', vminmax=[None, None], nan_color='#cccccc',
                      nan_alpha=1.0, style='default', bmesh='midthickness',
-                     bmesh_alpha=0.2, bmesh_color='lightgray', zoom=1.2, display_type='matplotlib',
+                     bmesh_alpha=0.15, bmesh_color='lightgray', zoom=1.2, display_type='matplotlib',
                      export_path=None, custom_atlas_proc=dict(smooth_i=15, smooth_f=0.6)):
     """
     Visualize data on the subcortical structures using a specified atlas.
@@ -362,7 +362,7 @@ def plot_subcortical(data=None, atlas=None, custom_atlas_path=None, ax=None, cba
         (e.g., 'midthickness', 'white', 'swm', etc), single PolyData (used for both hemispheres)
         or a dict with 'L'/'R' keys. Default is 'midthickness'.
     bmesh_alpha : float, optional
-        Opacity of the context brain mesh. Default is 0.2.
+        Opacity of the context brain mesh. Default is 0.15.
     bmesh_color : str, optional
         Color of the context brain mesh.
     zoom : float, optional
@@ -556,7 +556,7 @@ def _retrieve_static_mesh(category, atlas_key, name, fpath, **kwargs):
 def plot_tracts(data=None, atlas=None, custom_atlas_path=None, ax=None, cbar_kwargs=None, views=None, layout=None,
                 figsize=None, cmap='coolwarm', alpha=1.0, vminmax=[None, None],
                 nan_color='#BDBDBD', nan_alpha=1.0, style='default',
-                bmesh='midthickness', bmesh_alpha=0.2, bmesh_color='lightgray',
+                bmesh='midthickness', bmesh_alpha=0.15, bmesh_color='lightgray',
                 zoom=1.2, orientation_coloring=False, display_type='matplotlib',
                 tract_kwargs=dict(render_lines_as_tubes=True, line_width=1.2),
                 export_path=None):
@@ -604,7 +604,7 @@ def plot_tracts(data=None, atlas=None, custom_atlas_path=None, ax=None, cbar_kwa
         (e.g., 'midthickness', 'white', 'swm', etc), single PolyData (used for both hemispheres)
         or a dict with 'L'/'R' keys. Default is 'midthickness'.
     bmesh_alpha : float, optional
-        Opacity of the context brain mesh. Default is 0.2.
+        Opacity of the context brain mesh. Default is 0.15.
     bmesh_color : str, optional
         Color of the context brain mesh.
     zoom : float, optional
@@ -982,7 +982,7 @@ def plot_connectome(matrix=None, atlas=None, custom_atlas_path=None, ax=None, cb
                     node_vminmax=[None, None], edge_threshold='95%', edge_thickness='weight',
                     edge_scaling=1.0, edge_cmap='coolwarm', edge_color=None, edge_alpha=1.0,
                     edge_vminmax=[None, None], edge_curve=0.1, directed=False,
-                    style='default', bmesh_type='midthickness', bmesh_alpha=0.2,
+                    style='default', bmesh_type='midthickness', bmesh_alpha=0.15,
                     bmesh_color='lightgray', zoom=1.2, display_type='matplotlib', export_path=None):
     """
     visualizes an n x n connectivity matrix as a 3d network in the brain.
@@ -1041,7 +1041,7 @@ def plot_connectome(matrix=None, atlas=None, custom_atlas_path=None, ax=None, cb
     bmesh_type : str, optional
         surface to render as context (e.g., 'midthickness'). default is 'midthickness'.
     bmesh_alpha : float, optional
-        opacity of the context brain hull. default is 0.2.
+        Opacity of the context brain mesh. Default is 0.15.
     bmesh_color : str, optional
         color of the context brain hull. default is 'lightgray'.
     zoom : float, optional
@@ -1241,7 +1241,7 @@ def plot_connectome(matrix=None, atlas=None, custom_atlas_path=None, ax=None, cb
 def plot_voxelwise(nii_path, threshold='95%', n_levels=20, ax=None, cbar_kwargs=None, 
                    views=None, layout=None, figsize=None, cmap='coolwarm', 
                    vminmax=[None, None], blur_sigma=0.0, smooth_i=0, smooth_f=0.0,
-                   style='default', bmesh='midthickness', bmesh_alpha=0.2, 
+                   style='default', bmesh='midthickness', bmesh_alpha=0.15, 
                    bmesh_color='lightgray', ignore_bmesh=True, zoom=1.2, 
                    display_type='matplotlib', export_path=None):
     """
@@ -1286,7 +1286,7 @@ def plot_voxelwise(nii_path, threshold='95%', n_levels=20, ax=None, cbar_kwargs=
     bmesh : str, dict, or pyvista.PolyData, optional
         Background context brain mesh (e.g. 'midthickness', 'pial').
     bmesh_alpha : float, optional
-        Opacity of the context brain mesh.
+        Opacity of the context brain mesh. Default is 0.15.
     bmesh_color : str, optional
         Color of the context brain mesh.
     ignore_bmesh : bool, optional
