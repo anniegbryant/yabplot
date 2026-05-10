@@ -16,7 +16,7 @@ the idea is simple. while there are already amazing visualization tools availabl
 * **pre-existing atlases:** access many commonly used atlases (schaefer2018, brainnetome, aparc, aseg, musus100, xtract, etc) on demand.
 * **simple to use:** plug-n-play functions for cortex, subcortex, connectomics, and tracts with a unified API.
 * **custom atlases:** easily use your own parcellations, segmentations (.nii/.gii), or tractograms (.trk).
-* **vertexwise and tractometry plotting:** project volume (.nii) to cortical surface or tractogram and plot.
+* **plotting voxel-wise, vertex-wise, and tractometry:** plot volume (.nii) or project to cortical surface or tractogram.
 * **flexible inputs:** accepts data as dictionaries (for partial mapping) or arrays (for strict mapping).
 
 ## installation

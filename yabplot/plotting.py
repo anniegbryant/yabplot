@@ -1,12 +1,14 @@
 import os
 import gc
 import re
+import warnings
 import numpy as np
 import pandas as pd
 import nibabel as nib
 import pyvista as pv
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap, to_rgba
+from scipy.ndimage import gaussian_filter
 
 from .data import (
     get_surface_paths, _resolve_resource_path, _find_cortical_files,
@@ -1232,3 +1234,225 @@ def plot_connectome(matrix=None, atlas=None, custom_atlas_path=None, ax=None, cb
                 cbar_info.append({'cmap': node_cmap, 'vminmax': [n_vmin, n_vmax], 'title': node_title})
 
     return finalize_plot(plotter, export_path=export_path, display_type=display_type, ax=ax, cbar_info=cbar_info, cbar_kwargs=cbar_kwargs)
+
+
+### PLOT FOR VOXEL-WISE DATA ###
+
+def plot_voxelwise(nii_path, threshold='95%', n_levels=20, ax=None, cbar_kwargs=None, 
+                   views=None, layout=None, figsize=None, cmap='coolwarm', 
+                   vminmax=[None, None], blur_sigma=0.0, smooth_i=0, smooth_f=0.0,
+                   style='default', bmesh='midthickness', bmesh_alpha=0.2, 
+                   bmesh_color='lightgray', ignore_bmesh=True, zoom=1.2, 
+                   display_type='matplotlib', export_path=None):
+    """
+    Visualize 3D voxelwise data from a NIfTI file by extracting it as surface meshes.
+
+    This function extracts topographical shells (isosurfaces) from a volumetric image
+    and renders them within a transparent brain mesh and makes the high-intensity
+    layers with higher priority and more visible.
+
+    Parameters
+    ----------
+    nii_path : str
+        Path to the NIfTI file to visualize.
+    threshold : float or str, optional
+        Value below which voxels are hidden. Can be a float or a percentage
+        string like '95%'. Default is '95%'.
+    n_levels : int, optional
+        Number of nested isosurfaces to generate. Higher values show more detail
+        of the internal intensity gradient. Default is 20.
+    ax : matplotlib.axes.Axes, optional
+        Matplotlib axis to render into if display_type is 'matplotlib'.
+    cbar_kwargs : dict, optional
+        Arguments passed to the colorbar.
+    views : list of str, optional
+        Views to display (e.g. 'left_lateral', 'superior'). Defaults to all views.
+    layout : tuple (rows, cols), optional
+        Grid layout for subplots. If None, auto-calculated.
+    figsize : tuple (width, height), optional
+        Window size in inches.
+    cmap : str or matplotlib.colors.Colormap, optional
+        Colormap for the continuous voxel data.
+    vminmax : list [min, max], optional
+        Colormap bounds. If [None, None], uses robust 1st/99th percentiles.
+    blur_sigma : float, optional
+        Gaussian blur (voxel units) applied before thresholding for smoother geometry.
+    smooth_i : int, optional
+        Number of Laplacian smoothing iterations for the extracted mesh.
+    smooth_f : float, optional
+        Relaxation factor for mesh smoothing.
+    style : str, optional
+        Lighting preset ('default', 'matte', 'glossy', 'sculpted', 'flat').
+    bmesh : str, dict, or pyvista.PolyData, optional
+        Background context brain mesh (e.g. 'midthickness', 'pial').
+    bmesh_alpha : float, optional
+        Opacity of the context brain mesh.
+    bmesh_color : str, optional
+        Color of the context brain mesh.
+    ignore_bmesh : bool, optional
+        If True (default), data renders on top of brain regardless of depth (X-ray).
+        If False, brain surface correctly obscures the internal data.
+    zoom : float, optional
+        Camera zoom level. Default is 1.2.
+    display_type : {'matplotlib', 'interactive', 'pyvista', 'object'}, optional
+        Rendering backend and return type. Default is 'matplotlib'.
+    export_path : str, optional
+        If provided, saves the final figure to this path.
+
+    Returns
+    -------
+    matplotlib.axes.Axes or pyvista.Plotter or IPython.display.DisplayObject
+        returns based on display_type:
+        - 'matplotlib': returns a matplotlib axes object.
+        - 'interactive': returns a trame browser viewer.
+        - 'pyvista': returns a static jupyter widget.
+        - 'object': returns the raw pyvista plotter object.
+    """
+
+    # load and validate data
+    img = nib.load(nii_path)
+    data = img.get_fdata()
+
+    if data.ndim > 3:
+        warnings.warn(f"[WARNING] detected {data.ndim}d nifti volume. using the first volume (index 0).")
+        data = data[..., 0]
+
+    data = np.nan_to_num(data, nan=0.0)
+
+    # resolve threshold
+    if isinstance(threshold, str) and threshold.endswith('%'):
+        perc = float(threshold.strip('%'))
+        valid_vals = np.abs(data[data != 0.0])
+        actual_threshold = np.percentile(valid_vals, perc) if valid_vals.size > 0 else 1e-6
+    else:
+        actual_threshold = float(threshold) if threshold is not None else 1e-6
+
+    # resolve color limits
+    valid_original_mask = (np.abs(data) >= actual_threshold)
+    if np.any(valid_original_mask):
+        surviving = data[valid_original_mask]
+        has_negative = np.any(surviving < -actual_threshold)
+
+        if has_negative:
+            limit = max(np.percentile(np.abs(surviving), 99), actual_threshold * 1.1)
+            vmin_auto, vmax_auto = -limit, limit
+        else:
+            vmin_auto = np.percentile(surviving, 1)
+            vmax_auto = np.percentile(surviving, 99)
+
+        if vmin_auto == vmax_auto:
+            vmin_auto, vmax_auto = np.min(surviving), np.max(surviving)
+    else:
+        raise ValueError(f"No voxels found above threshold {actual_threshold}.")
+
+    vmin = vminmax[0] if vminmax[0] is not None else vmin_auto
+    vmax = vminmax[1] if vminmax[1] is not None else vmax_auto
+
+    # mesh extraction via nested isosurfaces
+    data_to_contour = gaussian_filter(data, sigma=float(blur_sigma)) if blur_sigma > 0 else data
+    grid = pv.ImageData()
+    grid.dimensions = data.shape
+    grid.point_data['Data'] = data_to_contour.flatten(order='F')
+
+    # generate levels for both positive and negative (if applicable)
+    pos_levels = np.linspace(actual_threshold, vmax, int(n_levels)) if vmax > actual_threshold else []
+    neg_levels = np.linspace(-actual_threshold, vmin, int(n_levels)) if vmin < -actual_threshold else []
+    shell_meshes = [] # List of (mesh, level_value)
+    for val in pos_levels:
+        mesh = grid.contour(isosurfaces=[val], scalars='Data')
+        if mesh.n_points > 0:
+            mesh.transform(img.affine, inplace=True)
+            if smooth_i and smooth_i > 0:
+                mesh = mesh.smooth(n_iter=int(smooth_i), relaxation_factor=float(smooth_f))
+            shell_meshes.append((mesh, val))
+    for val in neg_levels:
+        mesh = grid.contour(isosurfaces=[val], scalars='Data')
+        if mesh.n_points > 0:
+            mesh.transform(img.affine, inplace=True)
+            if smooth_i and smooth_i > 0:
+                mesh = mesh.smooth(n_iter=int(smooth_i), relaxation_factor=float(smooth_f))
+            shell_meshes.append((mesh, val))
+
+    if not shell_meshes:
+        raise ValueError("Extracted mesh has no vertices. Adjust threshold or blur_sigma.")
+
+    # plotter setup
+    sel_views = get_view_configs(views)
+    ax, display_type, figsize = prepare_plotter(ax, display_type, sel_views, layout, figsize)
+
+    plotter, ncols, nrows = setup_plotter(sel_views, layout, figsize, display_type, needs_bottom_row=True)
+    plotter.enable_depth_peeling(number_of_peels=20)
+    plotter.enable_anti_aliasing('msaa')
+    shading_params = get_shading_preset(style)
+    scalar_bar_mapper = None
+
+    # load context brain mesh
+    ctx_meshes = load_bmesh(bmesh)
+
+    # rendering loop
+    for i, (view_name, cfg) in enumerate(sel_views.items()):
+        plotter.subplot(i // ncols, i % ncols)
+
+        # base depth offset: push entire voxel group relative to brain
+        voxel_group_base = -20000.0 if ignore_bmesh else 20000.0
+
+        # helper to add shells from low to peak intensity
+        # adding cores last ensures peak visibility in painter's algorithm
+        def add_voxel_data():
+            nonlocal scalar_bar_mapper
+            sorted_shells = sorted(shell_meshes, key=lambda x: abs(x[1]))
+            for s_idx, (mesh, val) in enumerate(sorted_shells):
+                # hemisphere filtering
+                m_plot = mesh
+                if cfg['side'] == 'L':
+                    m_plot = mesh.clip(normal='x', origin=(0,0,0), invert=True)
+                elif cfg['side'] == 'R':
+                    m_plot = mesh.clip(normal='x', origin=(0,0,0), invert=False)
+
+                if m_plot.n_points == 0: continue
+
+                actor = plotter.add_mesh(
+                    m_plot, scalars='Data', cmap=cmap, clim=(vmin, vmax),
+                    opacity=1.0, show_scalar_bar=False, smooth_shading=True,
+                    lighting=False, name=f"voxels_{i}_{s_idx}"
+                )
+
+                # higher priority = closer to the camera, so peak cores are always on top
+                local_priority = voxel_group_base - (100.0 * (s_idx + 1))
+                actor.mapper.SetResolveCoincidentTopologyToPolygonOffset()
+                actor.mapper.SetRelativeCoincidentTopologyPolygonOffsetParameters(local_priority, local_priority)
+
+                if scalar_bar_mapper is None:
+                    scalar_bar_mapper = actor.mapper
+
+        def add_brain():
+            if not ctx_meshes: return
+            for h, mesh in ctx_meshes.items():
+                if (cfg['side'] == 'L' and h == 'R') or (cfg['side'] == 'R' and h == 'L'): continue
+                actor = plotter.add_mesh(mesh, color=bmesh_color, opacity=bmesh_alpha,
+                                         smooth_shading=True, show_edges=False,
+                                         name=f"bmesh_{h}_{i}", **shading_params)
+                actor.mapper.SetResolveCoincidentTopologyToPolygonOffset()
+                actor.mapper.SetRelativeCoincidentTopologyPolygonOffsetParameters(0.0, 0.0)
+
+        # relative addition order
+        if ignore_bmesh:
+            add_brain()
+            add_voxel_data()
+        else:
+            add_voxel_data()
+            add_brain()
+
+        set_camera(plotter, cfg, zoom=zoom)
+        plotter.hide_axes()
+
+    # colorbar setup
+    cbar_title = "voxel values"
+    cbar_info = []
+    if scalar_bar_mapper:
+        if display_type != 'matplotlib':
+            add_colorbars(plotter, [scalar_bar_mapper], [cbar_title], nrows, figsize)
+        else:
+            cbar_info.append({'cmap': cmap, 'vminmax': [vmin, vmax], 'title': cbar_title})
+
+    return finalize_plot(plotter, export_path, display_type, ax=ax, cbar_info=cbar_info, cbar_kwargs=cbar_kwargs)

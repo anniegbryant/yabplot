@@ -2,7 +2,8 @@ from importlib.metadata import version, PackageNotFoundError
 
 from .plotting import (
     plot_cortical, plot_subcortical, plot_tracts, 
-    clear_cache, plot_vertexwise, plot_connectome
+    clear_cache, plot_vertexwise, plot_connectome,
+    plot_voxelwise
 )
 from .data import (
     get_available_resources, get_atlas_regions

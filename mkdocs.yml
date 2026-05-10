@@ -61,6 +61,7 @@ nav:
       - getting started: tutorials/getting_started.ipynb
       - data mapping: tutorials/data_mapping.ipynb
       - plot styling: tutorials/plot_styling.ipynb
+      - plotting voxel-wise: tutorials/plotting_voxelwise.ipynb
       - plotting vertex-wise: tutorials/plotting_vertexwise.ipynb
       - plotting tractometry: tutorials/plotting_tractometry.ipynb
       - plotting connectome: tutorials/plotting_connectome.ipynb
