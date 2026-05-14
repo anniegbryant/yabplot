@@ -1,6 +1,6 @@
 [project]
 name = "yabplot"
-version = "0.5.0"
+version = "0.5.1"
 description = "yet another brain plot"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -32,3 +32,8 @@ include = ["yabplot*"]
 
 [tool.setuptools.package-data]
 "yabplot" = ["*.txt", "*.json"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]
