@@ -7,26 +7,26 @@ def project_vol2surf(nii_path, bmesh='midthickness', mask_medial_wall=True, inte
     """
     Projects a 3D NIfTI volume onto 2D cortical surface vertices.
 
-    It maps volumetric data directly onto surface meshes by converting real-world coordinates 
+    It maps volumetric data directly onto surface meshes by converting real-world coordinates
     using the image affine and sampling the data array at those exact points.
 
     Parameters
     ----------
     nii_path : str
-        absolute path to the 3D or 4D NIfTI volume. 
+        absolute path to the 3D or 4D NIfTI volume.
         if 4D, only the first volume/timepoint is used.
     bmesh : str, dict, or pyvista.PolyData, optional
-        background mesh to use for projection coordinates. accepts a standard 
-        string (e.g., 'midthickness') or a dictionary of custom pyvista meshes 
+        background mesh to use for projection coordinates. accepts a standard
+        string (e.g., 'midthickness') or a dictionary of custom pyvista meshes
         {'L': mesh, 'R': mesh}. default is 'midthickness'.
     mask_medial_wall : bool, optional
-        whether to automatically set the medial wall vertices to NaN to prevent 
-        subcortical signal from bleeding onto the cortical surface. 
+        whether to automatically set the medial wall vertices to NaN to prevent
+        subcortical signal from bleeding onto the cortical surface.
         Note: only supported if `bmesh` is a standard string. default is True.
     interpolation : {'linear', 'nearest'}, optional
-        interpolation method for sampling the volume. 'linear' performs trilinear 
-        interpolation (smoother, good for continuous t-stats), while 'nearest' 
-        snaps to the closest voxel center (strictly required for p-values or atlases). 
+        interpolation method for sampling the volume. 'linear' performs trilinear
+        interpolation (smoother, good for continuous t-stats), while 'nearest'
+        snaps to the closest voxel center (strictly required for p-values or atlases).
         default is 'linear'.
 
     Returns
@@ -42,19 +42,22 @@ def project_vol2surf(nii_path, bmesh='midthickness', mask_medial_wall=True, inte
     # load volume
     img = nib.load(nii_path)
     vol_data = img.get_fdata()
-    
+
     if vol_data.ndim > 3:
         warnings.warn(f"[WARNING] detected {vol_data.ndim}d nifti volume. using the first volume (index 0).")
-        vol_data = vol_data[..., 0] 
-        
+        vol_data = vol_data[..., 0]
+
     inv_affine = np.linalg.inv(img.affine)
 
     # load brain mesh
     loaded_meshes = load_bmesh(bmesh)
-    
+
+    if interpolation not in ['linear', 'nearest']:
+        raise ValueError("interpolation must be 'linear' or 'nearest'")
+
     if 'L' not in loaded_meshes or 'R' not in loaded_meshes:
         raise ValueError("project_vol2surf requires both 'L' and 'R' hemispheres in the bmesh dictionary.")
-        
+
     # extract raw coordinates for math
     lh_v, _ = extract_polydata(loaded_meshes['L'])
     rh_v, _ = extract_polydata(loaded_meshes['R'])
@@ -89,8 +92,8 @@ def project_vol2surf(nii_path, bmesh='midthickness', mask_medial_wall=True, inte
 def project_vol2tract_atlas(nii_path, atlas='xtract_tiny', custom_atlas_path=None, interpolation='linear'):
     """
     Samples a 3D volume across all tracts in a specific atlas.
-    This is a convenience function around `project_vol2tract` that automatically 
-    resolves the atlas paths, loops through all available tractograms, and returns 
+    This is a convenience function around `project_vol2tract` that automatically
+    resolves the atlas paths, loops through all available tractograms, and returns
     a dictionary ready to be passed directly to `plot_tracts`.
 
     Parameters
@@ -110,23 +113,23 @@ def project_vol2tract_atlas(nii_path, atlas='xtract_tiny', custom_atlas_path=Non
         dictionary mapping tract names to their 1D sampled data arrays.
     """
     from .data import _resolve_resource_path, _find_tract_files
-    
+
     # resolve the atlas directory and locate all tract files
     atlas_dir = _resolve_resource_path(atlas, 'tracts', custom_path=custom_atlas_path)
     tract_files = _find_tract_files(atlas_dir)
-    
+
     tract_data = {}
-    
+
     # loop through and map the volume to each tract
     for name, trk_path in tract_files.items():
         tract_data[name] = project_vol2tract(trk_path, nii_path, interpolation)
-        
+
     return tract_data
 
 
 def project_vol2tract(trk_path, nii_path, interpolation='linear'):
     """
-    Samples a 3D volume natively at every vertex of a tractogram. Maps the streamline 
+    Samples a 3D volume natively at every vertex of a tractogram. Maps the streamline
     coordinates directly into the volumetric voxel space using the image affine.
 
     Parameters
@@ -141,29 +144,32 @@ def project_vol2tract(trk_path, nii_path, interpolation='linear'):
     Returns
     -------
     numpy.ndarray
-        1D array of sampled values corresponding exactly to the flattened 
+        1D array of sampled values corresponding exactly to the flattened
         points of the tractogram, ready to be injected into plot_tracts.
     """
+    if interpolation not in ['linear', 'nearest']:
+        raise ValueError("interpolation must be 'linear' or 'nearest'")
+
     # load the 3D volume
     img = nib.load(nii_path)
     vol_data = img.get_fdata()
     if vol_data.ndim > 3:
         vol_data = vol_data[..., 0]
-        
+
     inv_affine = np.linalg.inv(img.affine)
 
     # load the tractogram
     trk = nib.streamlines.load(trk_path)
-    
+
     # stack all streamline coordinates into a single (n_points, 3) array
     points = np.vstack(trk.streamlines)
-    
+
     # convert coordinates using the inverse affine
     coords_homo = np.hstack((points, np.ones((points.shape[0], 1))))
     vox_coords = inv_affine.dot(coords_homo.T)[:3, :]
-    
+
     # sample the volume
     order = 1 if interpolation == 'linear' else 0
     sampled_data = map_coordinates(vol_data, vox_coords, order=order, mode='nearest')
-    
+
     return sampled_data

@@ -15,7 +15,7 @@ def load_gii(gii_path):
 def load_gii2pv(gii_path, smooth_i=0, smooth_f=0.1):
     """
     Load GIfTI and convert to PyVista format with optional smoothing.
-    
+
     Parameters
     ----------
     smooth_i : int
@@ -24,18 +24,18 @@ def load_gii2pv(gii_path, smooth_i=0, smooth_f=0.1):
         Relaxation factor (0.0 to 1.0, e.g. 0.6).
     """
     verts, faces = load_gii(gii_path)
-    
+
     # create pyvista mesh
     faces_pv = np.hstack([np.full((faces.shape[0], 1), 3), faces]).flatten().astype(int)
     mesh = pv.PolyData(verts, faces_pv)
-    
+
     # apply smoothing
     if smooth_i > 0:
         # use Laplacian smoothing (standard vtkSmoothPolyDataFilter)
         # note: higher relaxation factors can shrink the mesh significantly
         # if shrinkage is an issue, could consider mesh.smooth_taubin() instead
         mesh = mesh.smooth(n_iter=smooth_i, relaxation_factor=smooth_f)
-    
+
     return mesh
 
 def array_to_gifti(arr, out_path):
@@ -57,6 +57,8 @@ def prep_data(data, regions, atlas, category):
     if isinstance(data, pd.DataFrame):
         if data.shape[1] >= 2:
             data = dict(zip(data.iloc[:, 0], data.iloc[:, 1]))
+        else:
+            data = data.iloc[:, 0].to_dict()
     elif isinstance(data, pd.Series):
         data = data.to_dict()
     elif isinstance(data, (list, np.ndarray, tuple)):
@@ -94,34 +96,34 @@ def parse_lut(lut_path):
     # load and sort by ID to ensure strict order (1..N)
     df = pd.read_csv(lut_path, sep=r'\s+', header=None)
     df = df.sort_values(by=0)
-    
+
     ids = df[0].values
     names = df[1].tolist()
     rgb = df.iloc[:, 2:5].values / 255.0
-    
+
     max_id = ids.max()
-    
-    lut_colors = np.full((max_id + 1, 3), 0.5) 
+
+    lut_colors = np.full((max_id + 1, 3), 0.5)
     lut_names_list = ["Unknown"] * (max_id + 1)
-    
+
     lut_colors[ids] = rgb
     for idx, name in zip(ids, names):
         lut_names_list[idx] = name
-        
+
     return ids, lut_colors, lut_names_list, max_id
 
 
 def load_tsf(tsf_path: str) -> np.ndarray:
     """
-    Reads an MRtrix3 .tsf (track scalar file). Useful for users who 
-    have already computed tractometry metrics using MRtrix3's `tcksample` 
+    Reads an MRtrix3 .tsf (track scalar file). Useful for users who
+    have already computed tractometry metrics using MRtrix3's `tcksample`
     command and want to plot the resulting values in yabplot.
-    
+
     Parameters
     ----------
     tsf_path : str
         absolute path to the .tsf file.
-        
+
     Returns
     -------
     numpy.ndarray
@@ -129,7 +131,7 @@ def load_tsf(tsf_path: str) -> np.ndarray:
     """
     if not os.path.isfile(tsf_path):
         raise FileNotFoundError(f"File not found: {tsf_path}")
-    
+
     header: dict[str, str] = {}
     data_offset: int | None = None
 
