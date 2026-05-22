@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import yabplot as yab
 import pyvista as pv
+from yabplot.plotting import get_base_name
 
 # tell PyVista to run in "off-screen" mode so it doesn't try to open a real window
 pv.OFF_SCREEN = True
@@ -91,3 +92,110 @@ def test_export_path(tmp_path):
     yab.plot_cortical(atlas='aparc', display_type='matplotlib', export_path=str(out_file))
     assert out_file.exists()
     assert out_file.stat().st_size > 0
+
+
+# --- get_base_name unit tests ---
+
+@pytest.mark.parametrize("name,expected", [
+    # suffix patterns
+    ("putamen_l", "putamen"),
+    ("putamen_L", "putamen"),
+    ("Putamen_r", "Putamen"),
+    ("hippocampus-lh", "hippocampus"),
+    ("hippocampus-rh", "hippocampus"),
+    # prefix patterns
+    ("l-thalamus", "thalamus"),
+    ("r-thalamus", "thalamus"),
+    # word prefix patterns
+    ("left_caudate", "caudate"),
+    ("right_caudate", "caudate"),
+    ("left-amygdala", "amygdala"),
+    ("right-amygdala", "amygdala"),
+    # no hemisphere tag — returned as-is
+    ("brainstem", "brainstem"),
+    ("cerebellum", "cerebellum"),
+])
+def test_get_base_name(name, expected):
+    assert get_base_name(name) == expected
+
+
+# --- hemisphere_colors behavioral tests ---
+
+def _count_unique_region_colors(hemisphere_colors):
+    """Helper: run plot_subcortical and return the count of unique region colors."""
+    from unittest.mock import patch
+
+    captured = {}
+    original_add_mesh = pv.Plotter.add_mesh
+
+    def recording_add_mesh(self, mesh, **kwargs):
+        color = kwargs.get('color')
+        if color is not None:
+            captured[id(mesh)] = color
+        return original_add_mesh(self, mesh, **kwargs)
+
+    with patch.object(pv.Plotter, 'add_mesh', recording_add_mesh):
+        yab.plot_subcortical(
+            atlas='aseg', display_type='matplotlib', hemisphere_colors=hemisphere_colors
+        )
+
+    return len(set(
+        c if not isinstance(c, list) else tuple(c)
+        for c in captured.values()
+    ))
+
+
+def test_subcortical_hemisphere_colors_false_more_unique_than_true():
+    """hemisphere_colors=False (default) yields more unique colors than True."""
+    unique_false = _count_unique_region_colors(hemisphere_colors=False)
+    unique_true = _count_unique_region_colors(hemisphere_colors=True)
+    assert unique_false > unique_true
+
+
+def test_subcortical_hemisphere_colors_smoke():
+    """Smoke test: hemisphere_colors=True renders without error."""
+    yab.plot_subcortical(atlas='aseg', display_type='matplotlib', hemisphere_colors=True)
+
+
+def test_subcortical_shuffle_colors_smoke():
+    """Smoke test: shuffle_colors=True renders without error."""
+    yab.plot_subcortical(atlas='aseg', display_type='matplotlib', shuffle_colors=True)
+
+
+def test_shuffle_colors_reassigns_colors():
+    """shuffle_colors logic reassigns colors to different regions (unit test)."""
+    from yabplot.utils import generate_distinct_colors
+    import random
+
+    names = ['Left-Putamen', 'Right-Putamen', 'Left-Caudate', 'Right-Caudate',
+             'Left-Thalamus', 'Right-Thalamus', 'Left-Hippocampus', 'Right-Hippocampus']
+    n = len(names)
+    key_colors = generate_distinct_colors(n, seed=42)
+
+    color_map_default = dict(zip(names, key_colors))
+
+    random.seed(42)
+    keys = list(color_map_default.keys())
+    values = list(color_map_default.values())
+    random.shuffle(values)
+    color_map_shuffled = dict(zip(keys, values))
+
+    any_changed = any(
+        tuple(color_map_default[name]) != tuple(color_map_shuffled[name])
+        for name in names
+    )
+    assert any_changed, "Shuffle produced no change in color assignments"
+
+
+def test_subcortical_plot_regions_separately(tmp_path):
+    """plot_regions_separately=True writes one PNG per region+view combination."""
+    yab.plot_subcortical(
+        atlas='aseg',
+        display_type='matplotlib',
+        plot_regions_separately=True,
+        export_path=str(tmp_path),
+    )
+    png_files = list(tmp_path.glob("*.png"))
+    assert len(png_files) > 0, "No PNG files were written"
+    for f in png_files:
+        assert f.stat().st_size > 0, f"{f.name} is empty"

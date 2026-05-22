@@ -8,6 +8,7 @@ import nibabel as nib
 import pyvista as pv
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap, to_rgba
+from matplotlib.pyplot import get_cmap
 from scipy.ndimage import gaussian_filter
 
 from .data import (
@@ -119,6 +120,20 @@ def _render_cortical_views(lh_v, lh_f, lh_vals, rh_v, rh_f, rh_vals, is_cat,
 
     return finalize_plot(plotter, export_path, display_type, ax=ax, cbar_info=cbar_info, cbar_kwargs=cbar_kwargs)
 
+
+def get_base_name(name):
+    """Strip hemisphere suffix to get the base region name."""
+    n = name.lower()
+    for suffix in ['_l', '_r', '-lh', '-rh']:
+        if n.endswith(suffix):
+            return name[:len(name)-len(suffix)]
+    for prefix in ['l-', 'r-']:
+        if n.startswith(prefix):
+            return name[len(prefix):]
+    for word in ['left_', 'right_', 'left-', 'right-']:
+        if n.startswith(word):
+            return name[len(word):]
+    return name
 
 
 ### PLOT FOR ATLAS-BASED CORTICAL DATA ###
@@ -320,7 +335,9 @@ def plot_subcortical(data=None, atlas=None, custom_atlas_path=None, ax=None, cba
                      figsize=None, cmap='coolwarm', vminmax=[None, None], nan_color='#cccccc',
                      nan_alpha=1.0, style='default', bmesh='midthickness',
                      bmesh_alpha=0.15, bmesh_color='lightgray', zoom=1.2, display_type='matplotlib',
-                     export_path=None, custom_atlas_proc=dict(smooth_i=15, smooth_f=0.6)):
+                     export_path=None, custom_atlas_proc=dict(smooth_i=15, smooth_f=0.6),
+                     shuffle_colors=False, plot_regions_separately=False,
+                     hemisphere_colors=False):
     """
     Visualize data on the subcortical structures using a specified atlas.
 
@@ -378,6 +395,18 @@ def plot_subcortical(data=None, atlas=None, custom_atlas_path=None, ax=None, cba
         Parameters for processing custom GIfTI files.
         Keys: 'smooth_i' (iterations) and 'smooth_f' (relaxation factor).
         Default is {'smooth_i': 15, 'smooth_f': 0.6}.
+    shuffle_colors : bool, optional
+        If True, shuffles the color assignments for categorical coloring to help
+        distinguish adjacent regions with similar colormap neighbors. Default is False.
+    plot_regions_separately : bool, optional
+        If True, saves a separate PNG file for each region + view combination instead
+        of a single combined figure. Each file is named ``{region}_{view_face}.png``
+        and uses a transparent background (useful for SVG tracing pipelines).
+        ``export_path`` is treated as an output directory. Default is False.
+    hemisphere_colors : bool, optional
+        If True, bilateral region pairs (e.g. ``putamen_l`` / ``putamen_r``) share the
+        same color in atlas (no-data) mode. If False (default), every region is assigned
+        its own independent color.
 
     Returns
     -------
@@ -420,21 +449,114 @@ def plot_subcortical(data=None, atlas=None, custom_atlas_path=None, ax=None, cba
         vmax = vminmax[1] if vminmax[1] is not None else (max(valid_vals) if valid_vals else 1)
         c_vlim = [vmin, vmax]
     else:
-        colors = generate_distinct_colors(len(rmesh_names), seed=42)
-        d_atlas_colors = {name: color for name, color in zip(rmesh_names, colors)}
+        # Determine the key for each region: base name (hemisphere-shared) or the raw name
+        color_keys = (
+            list(dict.fromkeys(get_base_name(n) for n in rmesh_names))
+            if hemisphere_colors
+            else list(dict.fromkeys(rmesh_names))
+        )
+
+        # Generate one color per unique key
+        if cmap is None:
+            key_colors = generate_distinct_colors(len(color_keys), seed=42)
+            color_map = {k: color for k, color in zip(color_keys, key_colors)}
+        elif isinstance(cmap, str):
+            cmap_obj = get_cmap(cmap)
+            color_map = {
+                k: tuple(c[:3])
+                for k, c in zip(color_keys, cmap_obj(np.linspace(0, 1, len(color_keys))))
+            }
+
+        if shuffle_colors:
+            import random
+            random.seed(42)
+            keys = list(color_map.keys())
+            values = list(color_map.values())
+            random.shuffle(values)
+            color_map = dict(zip(keys, values))
+
+        lookup = get_base_name if hemisphere_colors else (lambda n: n)
+        d_atlas_colors = {name: color_map[lookup(name)] for name in rmesh_names}
         c_vlim = [0, 1]
 
-    # setup plotter
+    # setup views and shading (shared by both code paths)
     sel_views = get_view_configs(views)
     ax, display_type, figsize = prepare_plotter(ax, display_type, sel_views, layout, figsize)
 
-    needs_bottom = (data is not None)
-    plotter, ncols, nrows = setup_plotter(sel_views, layout, figsize, display_type,
-                                           needs_bottom_row=needs_bottom)
-
-
     # get shading parameters from style
     shading_params = get_shading_preset(style)
+
+    if plot_regions_separately:
+        # Determine output directory
+        if export_path is None:
+            out_dir = os.getcwd()
+        else:
+            _, _ext = os.path.splitext(export_path)
+            out_dir = os.path.dirname(export_path) if _ext else export_path
+            if not out_dir:
+                out_dir = os.getcwd()
+        os.makedirs(out_dir, exist_ok=True)
+
+        for view_name, cfg in sel_views.items():
+            view_face = view_name.replace('left_', '').replace('right_', '')
+            print(f"Rendering view: {view_name}...")
+
+            for target_name in list(meshes.keys()):
+                tokens = set(re.split(r'[^a-z0-9]+', target_name.lower()))
+                is_left = any(x in tokens for x in ['left', 'l', 'lh'])
+                is_right = any(x in tokens for x in ['right', 'r', 'rh'])
+                if cfg['side'] == 'L' and is_right and not is_left:
+                    continue
+                if cfg['side'] == 'R' and is_left and not is_right:
+                    continue
+
+                indiv_plotter = pv.Plotter(off_screen=True, window_size=list(figsize))
+                indiv_plotter.set_background('white')
+                add_context_to_view(indiv_plotter, ctx_meshes, cfg['side'], bmesh_alpha,
+                                    bmesh_color, **shading_params)
+
+                # Add all side-appropriate meshes; hide every one except the target.
+                # All meshes are added so the camera position stays consistent across
+                # exports, but only the target is visible.
+                for name, mesh in meshes.items():
+                    n_tokens = set(re.split(r'[^a-z0-9]+', name.lower()))
+                    n_is_left = any(x in n_tokens for x in ['left', 'l', 'lh'])
+                    n_is_right = any(x in n_tokens for x in ['right', 'r', 'rh'])
+                    if cfg['side'] == 'L' and n_is_right and not n_is_left:
+                        continue
+                    if cfg['side'] == 'R' and n_is_left and not n_is_right:
+                        continue
+
+                    props = shading_params.copy()
+                    if data is not None:
+                        val = d_data.get(name, np.nan) if pd.notna(d_data.get(name)) else np.nan
+                        has_val = not np.isnan(val)
+                        mesh['Data'] = np.full(mesh.n_points, val)
+                        props.update({
+                            'scalars': 'Data', 'cmap': cmap, 'clim': c_vlim,
+                            'nan_color': nan_color, 'opacity': 1.0 if has_val else nan_alpha,
+                            'show_scalar_bar': False,
+                        })
+                    else:
+                        props.update({'color': d_atlas_colors[name], 'opacity': 1.0})
+
+                    actor = indiv_plotter.add_mesh(mesh, **props)
+                    actor.SetVisibility(name == target_name)
+
+                set_camera(indiv_plotter, cfg, zoom=zoom)
+                indiv_plotter.hide_axes()
+
+                out_file = os.path.join(out_dir, f'{target_name}_{view_face}.png')
+                indiv_plotter.screenshot(out_file, transparent_background=True)
+                indiv_plotter.close()
+                print(f"  Saved → {out_file}")
+
+        return None
+
+    # setup plotter (combined / normal path)
+    needs_bottom = (data is not None)
+    plotter, ncols, nrows = setup_plotter(sel_views, layout, figsize, display_type,
+                                          needs_bottom_row=needs_bottom)
     scalar_bar_mapper = None
 
     # pre-calculate side tokens for all meshes to avoid regex in loops
